@@ -7,7 +7,7 @@ import Lobby from './components/Lobby';
 import './components/Board.css';
 
 ReactDOM.render(
-    <Lobby />,
+    <App />,
   document.getElementById('root')
   
 );

@@ -7,13 +7,14 @@ class Lobby extends React.Component {
         super(props)
         this.state ={
             peer: null,
-            challengeSent: null,
-            challengeReceived: null,
+            opponent: null,
             errorMsg: '',
+            challengeRequestType: '', //Can be 'sent' or 'received'
         }
         this.handleLoginRequest = this.handleLoginRequest.bind(this);
-        this.handleChallenge = this.handleChallenge.bind(this);
-        this.handleChallengeResponse = this.handleChallengeResponse.bind(this);
+        this.handleChallengeReceived = this.handleChallengeReceived.bind(this);
+        this.sendChallengeRequest = this.sendChallengeRequest.bind(this);
+        this.retireChallengeRequest = this.retireChallengeRequest.bind(this);
         this.sendChallengeResponse = this.sendChallengeResponse.bind(this);
     }
 
@@ -24,65 +25,68 @@ class Lobby extends React.Component {
         
     }
 
-    handleChallenge(opponentPeerId){ //Sends challenge request or cancels previously sent request
-        let conn = this.state.peer.connect(opponentPeerId);
-        if(conn && opponentPeerId!==null){
-            conn.on('open', () =>{
-                this.setState({challengeSent: conn, errorMsg:''});
-                this.state.challengeSent.on('data', (data) => this.handleChallengeResponse(data));
-                this.state.challengeSent.on('close', () => {this.state.challengeSent.close(); 
-                                                            this.state.errorMsg==='' ? this.state.errorMsg='L\'utente ha già ricevuto una sfida' : this.state.errorMsg=this.state.errorMsg;
-                                                            this.setState({challengeSent:null, errorMsg:'L\'utente ha già ricevuto una sfida'});
-                                                        });
+    sendChallengeRequest(opponentId){ //Only 1 challenge can be sent/received at a time
+        if(!this.state.opponent){
+            let conn = this.state.peer.connect(opponentId); //Connect to opponent and set listeners for response and connection closing
+            conn.on('open', () => {
+                conn.on('data', (data) => this.handleChallengeResponse(data));
+                conn.on('close', () => this.handleConnectionClose('rejected'));
+                this.setState({opponent:conn, challengeRequestType:'sent', errorMsg:''});
             })
         }
+    }
+
+
+    handleChallengeReceived(conn){ //Handle challenge request received
+        if(this.state.opponent){  //If there is already a challenge sent/received, close the new connection
+            conn.close();
+        }
         else{
-            if(this.state.challengeSent){
-                this.state.challengeSent.close();
-                this.setState({errorMsg:'Sfida annullata'});
+            conn.on('close', () => this.handleConnectionClose('retired'));
+            this.setState({opponent:conn, challengeRequestType:'received', errorMsg:''});
+        }
+    }
+
+    sendChallengeResponse(response){
+        if(response){
+            if(response==='accept'){
+                this.state.opponent.send('accept');
+                alert('GAME START | ' + this.state.peer.id + ' vs. ' + this.state.opponent.peer);
+                this.props.setPlayers(this.state.peer, this.state.opponent);
+            }
+            else if(response==='deny'){
+                this.state.opponent.close();
+                this.setState({opponent:null, errorMsg:'Sfida rifiutata'})
             }
         }
     }
 
-    handleChallengeReceived(conn){
-        conn.on('open', () =>{
-            if(!this.state.challengeReceived)
-                this.setState({challengeReceived: conn});
-            else
-                conn.close();
-                
-            conn.on('close', () => {conn.close(); this.setState({challengeReceived: null})});
-        })
-        
-    }
-
-    handleChallengeResponse(data){
-        if(data){
-            if(data==='accept'){
-                if(this.state.challengeReceived) //Local peer sent challenge, remote peer accepted
-                    alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeReceived.peer);
-                else                            //Remote peer sent challenge, local peer accepted
-                    alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeSent.peer);
-            }
-            else if(data==='deny'){
-                this.state.challengeSent.close();
-                this.setState({errorMsg:'L\'utente ha rifiutato la sfida',challengeSent:null});
+    handleChallengeResponse(response){
+        if(response){
+            if(response==='accept'){
+                alert('GAME START | ' + this.state.peer.id + ' vs. ' + this.state.opponent.peer);
+                this.props.setPlayers(this.state.peer, this.state.opponent);
             }
         }
     }
 
-    sendChallengeResponse(data){
-        let opponent = this.state.challengeReceived;
-        if(opponent){
-            opponent.send(data);
-            if(data==='accept'){
-                alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeReceived.peer);
-            }
-            else if(data==='deny'){
-                opponent.on('close', ()=> {opponent.close()});
-                this.setState({challengeReceived:null});
-            }
+    retireChallengeRequest(){
+        if(this.state.opponent){
+            this.state.opponent.close();
+            this.setState({opponent:null, errorMsg: 'Sfida annullata'});
         }
+    }
+
+    handleConnectionClose(cause){
+        let errorMsg;
+        if(cause==='rejected')
+            errorMsg = 'L\'avversario ha rifiutato la sfida';
+        else if(cause==='retired')
+            errorMsg = 'L\'avversario ha ritirato la sfida';
+        else
+            errorMsg = 'Errore di connessione';
+
+        this.setState({opponent:null, errorMsg:errorMsg});
     }
 
     render(){
@@ -92,13 +96,17 @@ class Lobby extends React.Component {
         let challengeRequest=null;
         
         if(!this.state.peer){
-            pageTitle = 'Log In';
+            pageTitle = 'Scegli un nome utente';
             formLogin = <LoginForm onClick={this.handleLoginRequest}/>
         }
         else{
             pageTitle = 'Sei collegato come ' + this.state.peer.id;
-            playerList = <PlayerList peer={this.state.peer} onClick={this.handleChallenge} challengeSent={this.state.challengeSent}/>
-            challengeRequest = <ChallengeRequest challengeReceived={this.state.challengeReceived} onClick={this.sendChallengeResponse}/>
+            if(!this.state.opponent)
+                playerList = <PlayerList peer={this.state.peer} onClick={this.sendChallengeRequest} challengeSent={this.state.opponent}/>
+            if(this.state.challengeRequestType==='received')
+                challengeRequest = <ChallengeReceivedComponent opponent={this.state.opponent} onClick={this.sendChallengeResponse}/>
+            else if(this.state.challengeRequestType==='sent')
+                challengeRequest = <ChallengeSentComponent opponent={this.state.opponent} onClick={this.retireChallengeRequest}/>
         }
         
         return(
@@ -158,6 +166,8 @@ class LoginForm extends React.Component {
             this.setState({loginError:'Inserisci un nome utente'})
         else if(user.length<4)
             this.setState({loginError:'Il nome utente deve contenere almeno 4 caratteri'})
+        else if(user.length>15)
+            this.setState({loginError:'Il nome utente deve contenere al massimo 15 caratteri'})
         else{
             this.setState({loginError:''});
             this.attemptLogin(user);
@@ -168,7 +178,7 @@ class LoginForm extends React.Component {
         return(
             <div className="loginForm">
                 <input type="text" value={this.username} onChange={this.handleChange}/>
-                <input type="button" onClick={this.handleLoginRequest} value="Login"/>
+                <input type="button" onClick={this.handleLoginRequest} value="Entra"/>
                 <br/>
                 <label className="lbl-error-login">{this.state.loginError}</label>
             </div>
@@ -238,10 +248,10 @@ class PlayerList extends React.Component {
     }
 }
 
-class ChallengeRequest extends React.Component {
+class ChallengeReceivedComponent extends React.Component {
 
     render(){
-        let requestTemp = this.props.challengeReceived;
+        let requestTemp = this.props.opponent;
         let title;
         let content;
         if(requestTemp){
@@ -253,6 +263,31 @@ class ChallengeRequest extends React.Component {
         }
         else{
             content=<p>Nessuna sfida ricevuta</p>
+        }
+
+        return(
+            <div className="challenge-request-request">
+                {title}
+                {content}
+            </div>
+        )
+    }
+}
+
+class ChallengeSentComponent extends React.Component {
+
+    render(){
+        let requestTemp = this.props.opponent;
+        let title=<h3>Richieste di sfida:</h3>;
+        let content;
+
+        if(requestTemp){
+            content=(
+                <p value={requestTemp.peer}>
+                    Hai sfidato {requestTemp.peer}! In attesa di risposta...
+                    <button onClick={() => this.props.onClick()}>Annulla</button>
+                </p>
+            )
         }
 
         return(
