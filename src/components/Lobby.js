@@ -6,39 +6,110 @@ class Lobby extends React.Component {
     constructor(props){
         super(props)
         this.state ={
-            isInGame: false,
             peer: null,
-            peerId: null,
-            challengeRequests: null
+            challengeSent: null,
+            challengeReceived: null,
+            errorMsg: '',
         }
         this.handleLoginRequest = this.handleLoginRequest.bind(this);
+        this.handleChallenge = this.handleChallenge.bind(this);
+        this.handleChallengeResponse = this.handleChallengeResponse.bind(this);
+        this.sendChallengeResponse = this.sendChallengeResponse.bind(this);
     }
 
     handleLoginRequest(newPeer){
-        this.setState({peer: newPeer});
+        this.setState({peer: newPeer}, () => {
+            this.state.peer.on('connection', (conn) => this.handleChallengeReceived(conn));
+        });
+        
+    }
+
+    handleChallenge(opponentPeerId){ //Sends challenge request or cancels previously sent request
+        let conn = this.state.peer.connect(opponentPeerId);
+        if(conn && opponentPeerId!==null){
+            conn.on('open', () =>{
+                this.setState({challengeSent: conn, errorMsg:''});
+                this.state.challengeSent.on('data', (data) => this.handleChallengeResponse(data));
+                this.state.challengeSent.on('close', () => {this.state.challengeSent.close(); 
+                                                            this.state.errorMsg==='' ? this.state.errorMsg='L\'utente ha già ricevuto una sfida' : this.state.errorMsg=this.state.errorMsg;
+                                                            this.setState({challengeSent:null, errorMsg:'L\'utente ha già ricevuto una sfida'});
+                                                        });
+            })
+        }
+        else{
+            if(this.state.challengeSent){
+                this.state.challengeSent.close();
+                this.setState({errorMsg:'Sfida annullata'});
+            }
+        }
+    }
+
+    handleChallengeReceived(conn){
+        conn.on('open', () =>{
+            if(!this.state.challengeReceived)
+                this.setState({challengeReceived: conn});
+            else
+                conn.close();
+                
+            conn.on('close', () => {conn.close(); this.setState({challengeReceived: null})});
+        })
+        
+    }
+
+    handleChallengeResponse(data){
+        if(data){
+            if(data==='accept'){
+                if(this.state.challengeReceived) //Local peer sent challenge, remote peer accepted
+                    alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeReceived.peer);
+                else                            //Remote peer sent challenge, local peer accepted
+                    alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeSent.peer);
+            }
+            else if(data==='deny'){
+                this.state.challengeSent.close();
+                this.setState({errorMsg:'L\'utente ha rifiutato la sfida',challengeSent:null});
+            }
+        }
+    }
+
+    sendChallengeResponse(data){
+        let opponent = this.state.challengeReceived;
+        if(opponent){
+            opponent.send(data);
+            if(data==='accept'){
+                alert('GAME START | '+ this.state.peer.id + ' vs. ' + this.state.challengeReceived.peer);
+            }
+            else if(data==='deny'){
+                opponent.on('close', ()=> {opponent.close()});
+                this.setState({challengeReceived:null});
+            }
+        }
     }
 
     render(){
         let formLogin=null;
         let pageTitle=null;
-        let opponentsList=null;
+        let playerList=null;
+        let challengeRequest=null;
         
         if(!this.state.peer){
             pageTitle = 'Log In';
             formLogin = <LoginForm onClick={this.handleLoginRequest}/>
         }
         else{
-            pageTitle = 'You are now logged in as ' + this.state.peer.id;
-            opponentsList = <PlayersList peer={this.state.peer} refresh={()=>this.handlePlayerListRefresh()}/>
+            pageTitle = 'Sei collegato come ' + this.state.peer.id;
+            playerList = <PlayerList peer={this.state.peer} onClick={this.handleChallenge} challengeSent={this.state.challengeSent}/>
+            challengeRequest = <ChallengeRequest challengeReceived={this.state.challengeReceived} onClick={this.sendChallengeResponse}/>
         }
-        
-        
         
         return(
             <div>
                 <h1>{pageTitle}</h1>
                 {formLogin}
-                {opponentsList}
+                <div id="requests">
+                    {playerList}
+                    {challengeRequest}
+                    {this.state.errorMsg}
+                </div>
             </div>
         )
     }
@@ -61,23 +132,32 @@ class LoginForm extends React.Component {
     }
 
     attemptLogin(username){
-        const peer = new Peer(username,
-            {host:'peerjs-server-battaglia-navale.herokuapp.com', 
-            secure:true,
-            port:443})
+        try {
+            const peer = new Peer(username,
+                {host:'peerjs-server-battaglia-navale.herokuapp.com', 
+                secure:true,
+                port:443})
+
+            if(!peer.id) //If server rejects connection (invalid username e.g. starting with '.' or ',')
+                throw 'Username non valido';
+
+            this.props.onClick(peer);
+        } catch (error) {
+            this.setState({loginError:'Username non valido'});
+            console.log(error);
+        }
         
-        this.props.onClick(peer);
     }
 
     handleLoginRequest(){
-        const user = this.state.username;
+        const user = this.state.username.trim();
 
         if(!user)
-            this.setState({loginError:'Insert a Username'})
+            this.setState({loginError:'Inserisci un nome utente'})
         else if(user==='')
-            this.setState({loginError:'Insert a Username'})
-        else if(user.length<5)
-            this.setState({loginError:'Username must contain at least 5 characters'})
+            this.setState({loginError:'Inserisci un nome utente'})
+        else if(user.length<4)
+            this.setState({loginError:'Il nome utente deve contenere almeno 4 caratteri'})
         else{
             this.setState({loginError:''});
             this.attemptLogin(user);
@@ -97,18 +177,19 @@ class LoginForm extends React.Component {
     }
 }
 
-class PlayersList extends React.Component {
+class PlayerList extends React.Component {
     constructor(props){
         super(props)
         this.state ={
             list:null,
+            challengeError:'',
         }
         this.refreshList = this.refreshList.bind(this);
         this.refreshList();
     }
     
     componentDidMount() {
-        this.timerID = setInterval(() => this.refreshList(), 3000);
+        this.timerID = setInterval(() => this.refreshList(), 2000);
     }
 
     componentWillUnmount() {
@@ -118,33 +199,69 @@ class PlayersList extends React.Component {
     refreshList(){
         let currentPeerIndex=null;
         let currentPeerId=this.props.peer.id;
+
         this.props.peer.listAllPeers((allPeers) => {
             currentPeerIndex = allPeers.indexOf(currentPeerId);
             if(currentPeerIndex!==-1){
-                allPeers.splice(currentPeerIndex,1);} //Remove current player from matchmaking list
+                allPeers.splice(currentPeerIndex,1);} //Remove current player from matchmaking request
             this.setState({list:allPeers});
         });
     }
 
     render(){
-        let opponents = [];
+        let players = [];
         let listTemp = this.state.list;
+        let challengeButton;
+        let challengedPlayer = this.props.challengeSent ? this.props.challengeSent.peer : null;
         if(listTemp){
             this.state.list.forEach(element => {
-                opponents.push(<li key={element} value={element}>{element}</li>);
+                challengeButton=null;
+                if(!challengedPlayer){
+                    challengeButton=<button onClick={() => this.props.onClick(element)} value={element}>Sfida</button>;
+                }
+                else if(challengedPlayer == element){
+                    challengeButton=<button onClick={() => this.props.onClick(null)} value={element}>Annulla</button>;
+                }
+                players.push(<li key={element} value={element}>{element} {challengeButton}</li>);
             });
         }
 
         return(
-            <div className="players-list">
-                <h3>Connected players:</h3>
+            <div className="players-request">
+                <h3>Giocatori connessi:</h3>
                 <ul>
-                    {opponents.length>0 ? opponents : 'No other players connected'}
+                    {players.length>0 ? players : 'Nessun altro giocatore connesso'}
                 </ul>
+                {this.state.challengeError}
             </div>
         )
     }
+}
 
+class ChallengeRequest extends React.Component {
+
+    render(){
+        let requestTemp = this.props.challengeReceived;
+        let title;
+        let content;
+        if(requestTemp){
+            title=<h3>Richieste di sfida:</h3>;
+            content=(<p value={requestTemp.peer}>{requestTemp.peer} ti ha sfidato!
+            <button onClick={() => this.props.onClick('accept')}>Accetta</button>
+            <button onClick={() => this.props.onClick('deny')}>Rifiuta</button>
+            </p>)
+        }
+        else{
+            content=<p>Nessuna sfida ricevuta</p>
+        }
+
+        return(
+            <div className="challenge-request-request">
+                {title}
+                {content}
+            </div>
+        )
+    }
 }
 
 export default Lobby
