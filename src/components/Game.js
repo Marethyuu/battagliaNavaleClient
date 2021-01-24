@@ -11,11 +11,20 @@ class Game extends React.Component {
         }
     }
 
+    componentDidMount(){
+        this.props.opponent.on('close', () => this.props.onOpponentDisconnect())
+    }
+
+    componentWillUnmount(){
+        this.props.opponent.off();
+    }
+
+
     render(){
         return(
             <div id="game">
-            <Board />
-            <Board />
+                <Board />
+                <Board />
             </div>
         )
     }

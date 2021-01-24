@@ -1,31 +1,40 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import Peer from 'peerjs';
 import Lobby from './components/Lobby';
 import Game from './components/Game';
+import LoginForm from './components/LoginForm';
 
 class App extends React.Component {
     constructor(props){
         super(props)
         this.state ={
-            peer: null, //Peer is the local player
-            opponent: null,
+            localPlayer: null, //localPlayer is the local player
+            remotePlayer: null,
         }
-        this.setPlayers = this.setPlayers.bind(this);
+        this.setRemotePlayer = this.setRemotePlayer.bind(this);
+        this.gameClosed = this.gameClosed.bind(this);
+        this.handleLoginRequest = this.handleLoginRequest.bind(this);
     }
 
-    setPlayers(newPeer, newOpponent){
-        if(newPeer && newOpponent)
-            this.setState({peer:newPeer, opponent:newOpponent});
+    handleLoginRequest(newlocalPlayer){
+        this.setState({localPlayer: newlocalPlayer});        
+    }
+    
+    setRemotePlayer(newRemotePlayer){
+        this.setState({remotePlayer:newRemotePlayer});
     }
 
+    gameClosed(){
+        this.setState({remotePlayer:null});
+    }
 
     render(){
-
-        if(!this.state.peer && !this.state.opponent)
-            return (<Lobby setPlayers={this.setPlayers}/>);
-        else
-            return(<Game />);
+        if(!this.state.localPlayer) //First step: set the local localPlayer with a login procedure
+            return (<LoginForm onClick={this.handleLoginRequest}/>);
+        else if(!this.state.remotePlayer) //Second step: set the remotePlayer
+            return (<Lobby peer={this.state.localPlayer} setOpponent={this.setRemotePlayer}/>);
+        else //If localPlayer and remotePlayer are set, start game
+            return (<Game onOpponentDisconnect={this.gameClosed} peer={this.state.localPlayer} opponent={this.state.remotePlayer}/>);
     }
 }
 
