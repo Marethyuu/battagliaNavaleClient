@@ -22,7 +22,6 @@ class App extends React.Component {
     }
 
     gameClosed = () => {
-        alert('Avversario Disconnesso!');
         this.setState({ remotePlayer: null });
     }
 
