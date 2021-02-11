@@ -32,7 +32,6 @@ class Game extends React.Component {
         this.props.opponent.on('close', () => this.props.onOpponentDisconnect())
         this.props.opponent.on('data', (data) => this.getOpponentMessage(data));
         this.props.peer.on('connection', (conn) => { conn.close(); });
-        this.timerID = setInterval(() => this.checkOpponent(), 2000);
     }
 
     //Remove peerjs event listeners
@@ -52,10 +51,16 @@ class Game extends React.Component {
                 this.setState({ opponentReady: true }, () => this.arePlayersReady());
         }
         else { //If game has started listen for moves/responses
-            if (typeof data === 'object' && data !== null)
-                this.handleOpponentMove(data);
-            else
+            if (typeof data === 'object' && data !== null) {
+                if (Array.isArray(data) && data.length === 10) //If opponent won, receive his board to check his ships
+                    this.setState({ opponentBoard: data })
+                else
+                    this.handleOpponentMove(data);
+            }
+            else {
+
                 this.checkWinner(data);
+            }
         }
     }
 
@@ -151,13 +156,13 @@ class Game extends React.Component {
             }
             else if (this.state.opponentHealthPoints === 0) {
                 this.props.opponent.send(this.props.peer.id);
-                this.setState({ winner: 'local' });
+                this.setState({ winner: 'local' }, () => this.props.opponent.send(this.state.localPlayerBoard));
             }
             else return null;
         }
         else { //Receive winner if local player isn't host
             if (winner === this.props.peer.id)
-                this.setState({ winner: 'local' });
+                this.setState({ winner: 'local' }, () => this.props.opponent.send(this.state.localPlayerBoard));
             else if (winner === this.props.opponent.peer)
                 this.setState({ winner: this.props.opponent.peer });
         }
