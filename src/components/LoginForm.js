@@ -2,9 +2,9 @@ import React from 'react';
 import Peer from 'peerjs'
 
 class LoginForm extends React.Component {
-    constructor(props){
+    constructor(props) {
         super(props)
-        this.state ={
+        this.state = {
             username: null,
             loginError: ''
         }
@@ -12,56 +12,59 @@ class LoginForm extends React.Component {
         this.handleLoginRequest = this.handleLoginRequest.bind(this);
     }
 
-    handleChange(event){
-        this.setState({username: event.target.value, loginError:''})
+    handleChange(event) {
+        this.setState({ username: event.target.value, loginError: '' })
 
     }
 
-    attemptLogin(username){
+    attemptLogin(username) {
         try {
             const peer = new Peer(username,
-                {host:'peerjs-server-battaglia-navale.herokuapp.com', 
-                secure:true,
-                port:443})
+                {
+                    host: 'peerjs-server-battaglia-navale.herokuapp.com',
+                    secure: true,
+                    port: 443
+                })
 
-            if(!peer.id) //If server rejects connection (invalid username e.g. starting with '.' or ',')
+            if (!peer.id) //If server rejects connection (invalid username e.g. starting with '.' or ',')
                 throw 'Username non valido';
 
-            peer.on('error', (error) => {this.setState({loginError: 'Nome utente già preso'})})
-            peer.on('open', () => {peer.off('connection open close data error'); this.props.onClick(peer);});
+            peer.on('error', (error) => { this.setState({ loginError: 'Nome utente già preso' }) })
+            peer.on('open', () => { peer.off('connection open close data error'); this.props.onClick(peer); });
         } catch (error) {
-            this.setState({loginError:'Username non valido'});
+            this.setState({ loginError: 'Username non valido' });
             console.log(error);
         }
     }
 
-    handleLoginRequest(){
+    handleLoginRequest() {
         const user = this.state.username.trim();
 
-        if(!user)
-            this.setState({loginError:'Inserisci un nome utente'})
-        else if(user==='')
-            this.setState({loginError:'Inserisci un nome utente'})
-        else if(user.length<4)
-            this.setState({loginError:'Il nome utente deve contenere almeno 4 caratteri'})
-        else if(user.length>15)
-            this.setState({loginError:'Il nome utente deve contenere al massimo 15 caratteri'})
-        else{
-            this.setState({loginError:''});
+        if (!user)
+            this.setState({ loginError: 'Inserisci un nome utente' })
+        else if (user === '')
+            this.setState({ loginError: 'Inserisci un nome utente' })
+        else if (user.length < 4)
+            this.setState({ loginError: 'Il nome utente deve contenere almeno 4 caratteri' })
+        else if (user.length > 15)
+            this.setState({ loginError: 'Il nome utente deve contenere al massimo 15 caratteri' })
+        else {
+            this.setState({ loginError: '' });
             this.attemptLogin(user);
         }
     }
-    
-    render(){
-        return(
+
+    render() {
+        return (
             <div className="loginForm">
                 <h1>Scegli un nome utente:</h1>
-                <input type="text" value={this.username} onChange={this.handleChange}/>
-                <input type="button" onClick={this.handleLoginRequest} value="Entra"/>
-                <br/>
-                <label className="lbl-error-login">{this.state.loginError}</label>
+                <input type="text" value={this.username} onChange={this.handleChange} />
+                <input type="button" onClick={this.handleLoginRequest} value="Entra" />
+                <br />
+                <p>Lunghezza compresa tra 4 e 15 caratteri. L'unico simbolo permesso è "-" e non dev'essere né il primo né l'ultimo carattere del nome utente. </p>
+                <p className="error">{this.state.loginError}</p>
             </div>
-            
+
         )
     }
 }
